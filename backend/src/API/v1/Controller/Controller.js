@@ -233,8 +233,8 @@ class Controller {
     }
   }
 
-  // addInformation
-  async addInformation(req, res) {
+  // regisAddInformation
+  async regisAddInformation(req, res) {
     try {
       const {
         userId,
@@ -244,6 +244,9 @@ class Controller {
         gender,
         Address,
         careerGoal,
+        certificatesMeta,
+        skills,
+        study,
         action = "replace",
       } = req.body;
 
@@ -257,11 +260,40 @@ class Controller {
         }
       }
 
+      // 🟢 parse skills
+     
+      if (req.body.skills) {
+        try {
+          skills = JSON.parse(req.body.skills);
+        } catch (err) {
+          console.error("Parse skills lỗi:", err);
+        }
+      }
+
+      // 🟢 parse education
+     
+      if (req.body.study) {
+        try {
+          study = JSON.parse(req.body.study);
+        } catch (err) {
+          console.error("Parse study lỗi:", err);
+        }
+      }
+
+      // 🟢 parse certificates metadata (nếu có)
+      if (req.body.certificates) {
+        try {
+          certificatesMeta = JSON.parse(req.body.certificates);
+        } catch (err) {
+          console.error("Parse certificates lỗi:", err);
+        }
+      }
+
       const user = await User.findById(userId);
       if (!user)
         return res.status(404).json({ massage: "Người dùng không tồn tại!" });
 
-      // update
+      // update thông tin cơ bản
       user.nameUser = nameUser || user.nameUser;
       user.birdDay = birdDay || user.birdDay;
       user.website = website || user.website;
@@ -269,35 +301,44 @@ class Controller {
       user.Address = Address || user.Address;
       user.careerGoal = careerGoal || user.careerGoal;
 
-      // upload avatar (1 file)
-      if (req.file) {
-        user.avatar = req.file.path; // đường dẫn file ảnh
+      // ✅ avatar (1 file)
+      // CHỮA: dùng req.files.avatar thay vì req.file
+      if (req.files && req.files.avatar && req.files.avatar.length > 0) {
+        user.avatar = req.files.avatar[0].path; // đường dẫn file ảnh
       }
 
-      // ✅ upload nhiều file (nếu có)
-      if (req.files && req.files.length > 0) {
-        // Ví dụ bạn lưu tất cả file vào mảng user.attachments
-        const newFiles = req.files.map((file) => ({
-          filename: file.originalname,
-          path: file.path,
-          mimetype: file.mimetype,
+      // ✅ certificates (nhiều file ảnh chứng chỉ)
+      if (
+        req.files &&
+        req.files.certificates &&
+        req.files.certificates.length > 0
+      ) {
+        const newCertificates = req.files.certificates.map((file) => ({
+          // name: "", // bạn có thể nhận từ certificatesMeta nếu muốn
+          // organization: "",
+          // issueDate: null,
+          // expiryDate: null,
+          file: {
+            filename: file.originalname,
+            path: file.path,
+            mimetype: file.mimetype,
+            size: file.size,
+          },
         }));
 
         if (action === "append") {
-          user.attachments = [...(user.attachments || []), ...newFiles];
+          user.certificate = [...(user.certificate || []), ...newCertificates];
         } else {
-          user.attachments = newFiles;
+          user.certificate = newCertificates;
         }
       }
 
-      // object information
+      // ✅ workExperiences
       if (workExperiences && workExperiences.length > 0) {
-        // isArray
         const arr = Array.isArray(workExperiences)
           ? workExperiences
           : [workExperiences];
 
-        // chuẩn hóa field ngày tháng
         const normalized = arr.map((exp) => ({
           company: exp.company,
           position: exp.position,
@@ -311,6 +352,50 @@ class Controller {
           user.workExperiences.push(...normalized);
         } else {
           user.workExperiences = normalized;
+        }
+      }
+
+      // ✅ skills
+      if (skills && skills.length > 0) {
+        const arr = Array.isArray(skills) ? skills : [skills];
+
+        const normalized = arr.map((s) => ({
+          type: s.type || "hard", // hard | soft
+          name: s.name || "",
+          partials: Array.isArray(s.partials)
+            ? s.partials.map((p) => ({
+                name: p.name || "",
+                level: p.level || "",
+              }))
+            : [],
+        }));
+
+        if (action === "append") {
+          user.skills.push(...normalized);
+        } else {
+          user.skills = normalized;
+        }
+      }
+
+      // ✅ study (education)
+      if (study && study.length > 0) {
+        const arr = Array.isArray(study) ? study : [study];
+
+        const normalized = arr.map((edu) => ({
+          school: edu.school || "",
+          degree: edu.degree || "",
+          fieldOfStudy: edu.fieldOfStudy || "",
+          startDate: edu.startDate ? new Date(edu.startDate) : null,
+          endDate: edu.endDate ? new Date(edu.endDate) : null,
+          description: edu.description || "",
+          subjects: Array.isArray(edu.subjects) ? edu.subjects : [],
+          achievements: Array.isArray(edu.achievements) ? edu.achievements : [],
+        }));
+
+        if (action === "append") {
+          user.study.push(...normalized);
+        } else {
+          user.study = normalized;
         }
       }
 

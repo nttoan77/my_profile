@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 const UserSchema = new mongoose.Schema(
   {
     name: String,
-    avatar:  {type: String} ,
+    avatar: { type: String },
     nameUser: String,
     birdDay: String,
     gender: String,
@@ -46,22 +46,39 @@ const UserSchema = new mongoose.Schema(
         organization: String,
         issueDate: Date,
         expiryDate: Date,
+        // thêm file để lưu đường dẫn ảnh
+        file: {
+          filename: String,
+          path: String,
+          mimetype: String,
+          size: Number,
+        },
       },
     ],
     //  study
     study: [
       {
-        placeOfStudy: String,
-        fieldOfStudy: String,
-        studyTime: String,
-        startDate: Date,
-        endDate: Date,
+        school: { type: String, required: true },
+        degree: { type: String },
+        fieldOfStudy: { type: String },
+        startDate: { type: Date },
+        endDate: { type: Date },
+        description: { type: String },
+        subjects: [{ type: String }],
+        achievements: [{ type: String }],
       },
     ],
-    skillsData: [
+
+    skills: [
       {
-        category: String,
-        skills: [String],
+        type: { type: String }, // "hard" | "soft"
+        name: String,
+        partials: [
+          {
+            name: String, // tên kỹ năng con
+            level: String, // mức độ
+          },
+        ],
       },
     ],
   },
