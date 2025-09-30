@@ -229,6 +229,7 @@ class Controller {
 
       res.status(201).json({ message: "Đăng ký thành công", user, token });
     } catch (error) {
+      console.error("Register Error:", error);
       res.status(500).json({ message: "Lỗi server", error: error.message });
     }
   }
@@ -239,18 +240,28 @@ class Controller {
       const {
         userId,
         nameUser,
-        birdDay,
+        birthDay,
         website,
         gender,
-        Address,
+        address,
         careerGoal,
-        certificatesMeta,
-        skills,
-        study,
+
+        desireInWork,
         action = "replace",
       } = req.body;
 
-      // 🟢 parse mảng workExperiences (từ FormData -> string)
+      let skills = [];
+      let study = [];
+      let certificatesMeta;
+
+      // sử lý date
+      const parseDate = (str) => {
+        if (!str) return null;
+        const d = new Date(str);
+        return isNaN(d) ? null : d;
+      };
+
+      // 🟢 parse mảng workExperiences
       let workExperiences = [];
       if (req.body.workExperiences) {
         try {
@@ -261,7 +272,7 @@ class Controller {
       }
 
       // 🟢 parse skills
-     
+
       if (req.body.skills) {
         try {
           skills = JSON.parse(req.body.skills);
@@ -271,7 +282,7 @@ class Controller {
       }
 
       // 🟢 parse education
-     
+
       if (req.body.study) {
         try {
           study = JSON.parse(req.body.study);
@@ -289,17 +300,22 @@ class Controller {
         }
       }
 
-      const user = await User.findById(userId);
+      const user = await User.findOne({ userId: userId });
+
       if (!user)
         return res.status(404).json({ massage: "Người dùng không tồn tại!" });
 
+      // --------------------------------
       // update thông tin cơ bản
       user.nameUser = nameUser || user.nameUser;
-      user.birdDay = birdDay || user.birdDay;
+      user.birthDay = birthDay || user.birthDay;
       user.website = website || user.website;
       user.gender = gender || user.gender;
-      user.Address = Address || user.Address;
+      user.address = address || user.address;
       user.careerGoal = careerGoal || user.careerGoal;
+      user.desireInWork = desireInWork || user.desireInWork;
+
+      // -----------------------------------------
 
       // ✅ avatar (1 file)
       // CHỮA: dùng req.files.avatar thay vì req.file
@@ -342,8 +358,8 @@ class Controller {
         const normalized = arr.map((exp) => ({
           company: exp.company,
           position: exp.position,
-          startDate: exp.startDate ? new Date(exp.startDate) : null,
-          endDate: exp.endDate ? new Date(exp.endDate) : null,
+          startDate: exp.startDate || "",
+          endDate: exp.endDate || "",
           description: exp.description,
           achievements: exp.achievements,
         }));
@@ -385,8 +401,8 @@ class Controller {
           school: edu.school || "",
           degree: edu.degree || "",
           fieldOfStudy: edu.fieldOfStudy || "",
-          startDate: edu.startDate ? new Date(edu.startDate) : null,
-          endDate: edu.endDate ? new Date(edu.endDate) : null,
+          startDate: edu.startDate || "",
+          endDate: edu.endDate || "",
           description: edu.description || "",
           subjects: Array.isArray(edu.subjects) ? edu.subjects : [],
           achievements: Array.isArray(edu.achievements) ? edu.achievements : [],
@@ -402,8 +418,8 @@ class Controller {
       await user.save();
       res.status(200).json({ message: "Cập nhật thành công", user });
     } catch (error) {
-      console.error(" Error addInformation:", error);
       res.status(500).json({ message: "Lỗi server", error: error.message });
+      console.error("🔥 Lỗi khi cập nhật thông tin:", error);
     }
   }
 }

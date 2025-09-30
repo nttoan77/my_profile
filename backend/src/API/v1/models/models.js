@@ -1,18 +1,28 @@
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 
+// Nếu bạn muốn tự tăng userId thì cần Counter model
+const CounterSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  seq: { type: Number, default: 0 },
+});
+const Counter = mongoose.model("Counter", CounterSchema);
+
 const UserSchema = new mongoose.Schema(
   {
+    userId: { type: Number, unique: true }, 
     name: String,
-    avatar: { type: String },
+    avatar: String,
     nameUser: String,
-    birdDay: String,
+    birthDay: {type: Date}, 
     gender: String,
-    phone: { type: String, unique: true, required: true, sparse: true },
-    email: { type: String, unique: true, required: true, sparse: true },
+    phone: { type: String, unique: true, required: true }, 
+    email: { type: String, unique: true, required: true }, 
     password: { type: String, required: true },
     website: String,
-    Address: String,
+    address: String, 
+    desireInWork: String,
+
     // save file
     attachments: [
       {
@@ -21,32 +31,29 @@ const UserSchema = new mongoose.Schema(
         mimetype: String,
       },
     ],
-    //
-    createdAt: { type: Date, default: Date.now },
-    //
+
     careerGoal: String,
     jobPosition: String,
     education: String,
-    About: String,
-    // Work Experience
+    about: String, 
+
     workExperiences: [
       {
-        company: { type: String },
-        position: { type: String },
-        startDate: { type: Date },
-        endDate: { type: Date },
-        description: { type: String },
-        achievements: { type: String },
+        company: String,
+        position: String,
+        startDate: String,
+        endDate: String,
+        description: String,
+        achievements: String,
       },
     ],
-    // certificate
+
     certificate: [
       {
         name: String,
         organization: String,
-        issueDate: Date,
-        expiryDate: Date,
-        // thêm file để lưu đường dẫn ảnh
+        issueDate: String,
+        expiryDate: String,
         file: {
           filename: String,
           path: String,
@@ -55,50 +62,53 @@ const UserSchema = new mongoose.Schema(
         },
       },
     ],
-    //  study
+
     study: [
       {
-        school: { type: String, required: true },
-        degree: { type: String },
-        fieldOfStudy: { type: String },
-        startDate: { type: Date },
-        endDate: { type: Date },
-        description: { type: String },
-        subjects: [{ type: String }],
-        achievements: [{ type: String }],
+        school: { type: String },
+        degree: String,
+        fieldOfStudy: String,
+        startDate: String,
+        endDate: String,
+        description: String,
+        subjects: [String],
+        achievements: [String],
       },
     ],
 
     skills: [
       {
-        type: { type: String }, // "hard" | "soft"
-        name: String,
+        type: { type: String, default: 'hard' },  // hard | soft
+        name: { type: String, },
         partials: [
           {
-            name: String, // tên kỹ năng con
-            level: String, // mức độ
+            name: { type: String },
+            level: { type: String },
           },
         ],
       },
     ],
+    
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
 UserSchema.pre("save", async function (next) {
+  // Tự tăng userId
   if (this.isNew) {
     const counter = await Counter.findOneAndUpdate(
-      { name: "_id" },
+      { name: "userId" },
       { $inc: { seq: 1 } },
       { new: true, upsert: true }
     );
     this.userId = counter.seq;
   }
 
-  if (!this.isModified("password")) return next();
-  this.password = await bcrypt.hash(this.password, 6);
+  // Hash password
+  if (this.isModified("password")) {
+    this.password = await bcrypt.hash(this.password, 10); 
+  }
+
   next();
 });
 
