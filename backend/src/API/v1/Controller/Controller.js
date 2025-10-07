@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "../models/models.js";
+import mongoose from "mongoose";
 
 // const { mongooseToObject } = require("../../util/mongoose");
 
@@ -9,7 +10,7 @@ let otpStore = {};
 class Controller {
   // ADMIN
   // GET /api/users
-  async getAllUsers(req, res) {
+  async getAllUsersAdmin(req, res) {
     try {
       User.findOne({}).sort({ _id: "desc" });
 
@@ -18,6 +19,42 @@ class Controller {
       res.status(200).json(users);
     } catch (err) {
       res.status(500).json({ message: "Lỗi server", error: err.message });
+    }
+  }
+
+  // Get /api/auth/user
+
+  async getUser(req, res) {
+    try {
+      const { userId } = req.params;
+      const id = Number(userId); // ép sang số nhanh gọn
+
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "userId phải là số hợp lệ" });
+      }
+
+      // Tìm user theo userId thay vì _id mặc định
+      const user = await User.findOne({ userId: id });
+
+      if (!user) {
+        return res.status(404).json({ message: "Không tìm thấy người dùng!" });
+      }
+      const formatDateVN = (date) => {
+        if (!date) return null;
+        const d = new Date(date);
+        const day = String(d.getDate()).padStart(2, "0");
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        const year = d.getFullYear();
+        return `${day}/${month}/${year}`;
+      };
+
+      const userObj = user.toObject();
+      userObj.birthDay = formatDateVN(userObj.birthDay);
+
+      res.status(200).json(user);
+    } catch (error) {
+      console.error("Lỗi khi lấy thông tin người dùng:", error);
+      res.status(500).json({ message: "Lỗi server" });
     }
   }
 
@@ -257,7 +294,8 @@ class Controller {
       // sử lý date
       const parseDate = (str) => {
         if (!str) return null;
-        const d = new Date(str);
+        const [day, month, year] = str.split("/");
+        const d = new Date(`${year}-${month}-${day}`);
         return isNaN(d) ? null : d;
       };
 
@@ -308,35 +346,39 @@ class Controller {
       // --------------------------------
       // update thông tin cơ bản
       user.nameUser = nameUser || user.nameUser;
-      user.birthDay = birthDay || user.birthDay;
+      // user.birthDay = birthDay || user.birthDay;
       user.website = website || user.website;
       user.gender = gender || user.gender;
       user.address = address || user.address;
       user.careerGoal = careerGoal || user.careerGoal;
       user.desireInWork = desireInWork || user.desireInWork;
+      if (birthDay) {
+        user.birthDay = parseDate(birthDay);
+      }
 
       // -----------------------------------------
 
       // ✅ avatar (1 file)
-      // CHỮA: dùng req.files.avatar thay vì req.file
+      // ✅ Avatar (1 ảnh)
       if (req.files && req.files.avatar && req.files.avatar.length > 0) {
-        user.avatar = req.files.avatar[0].path; // đường dẫn file ảnh
+        const avatarFile = req.files.avatar[0];
+        user.avatar = `${req.protocol}://${req.get("host")}/uploads/${
+          avatarFile.filename
+        }`;
       }
 
-      // ✅ certificates (nhiều file ảnh chứng chỉ)
+      // ✅ Certificates (nhiều file ảnh chứng chỉ)
       if (
         req.files &&
         req.files.certificates &&
         req.files.certificates.length > 0
       ) {
         const newCertificates = req.files.certificates.map((file) => ({
-          // name: "", // bạn có thể nhận từ certificatesMeta nếu muốn
-          // organization: "",
-          // issueDate: null,
-          // expiryDate: null,
           file: {
             filename: file.originalname,
-            path: file.path,
+            url: `${req.protocol}://${req.get("host")}/uploads/${
+              file.filename
+            }`, // ✅ URL public
             mimetype: file.mimetype,
             size: file.size,
           },
@@ -351,45 +393,54 @@ class Controller {
 
       // ✅ workExperiences
       if (workExperiences && workExperiences.length > 0) {
-        const arr = Array.isArray(workExperiences)
-          ? workExperiences
-          : [workExperiences];
-
-        const normalized = arr.map((exp) => ({
+        const arr = Array.isArray(workExperiences) ? workExperiences : [workExperiences];
+      
+        const normalized = arr.map(exp => ({
           company: exp.company,
           position: exp.position,
           startDate: exp.startDate || "",
           endDate: exp.endDate || "",
-          description: exp.description,
-          achievements: exp.achievements,
+          description: exp.description || "",
+          achievements: exp.achievements || "",
         }));
-
-        if (action === "append") {
-          user.workExperiences.push(...normalized);
-        } else {
-          user.workExperiences = normalized;
+      
+        if (normalized.length > 0) {
+          if (action === "append" || !action) {
+            user.workExperiences.push(...normalized);
+          } else {
+            user.workExperiences = normalized;
+          }
         }
-      }
-
+      }     
+      
+      
       // ✅ skills
-      if (skills && skills.length > 0) {
-        const arr = Array.isArray(skills) ? skills : [skills];
+      
+      if (req.body.skills) {
+        let skills = [];
+        try {
+          skills = JSON.parse(req.body.skills);
+        } catch (err) {
+          console.error("Parse skills lỗi:", err);
+        }
 
-        const normalized = arr.map((s) => ({
-          type: s.type || "hard", // hard | soft
-          name: s.name || "",
-          partials: Array.isArray(s.partials)
-            ? s.partials.map((p) => ({
-                name: p.name || "",
-                level: p.level || "",
-              }))
-            : [],
-        }));
+        if (Array.isArray(skills) && skills.length > 0) {
+          const normalized = skills.map((s) => ({
+            type: s.type || "hard",
+            name: s.name || "",
+            partials: Array.isArray(s.partials)
+              ? s.partials.map((p) => ({
+                  name: p.name || "",
+                  level: p.level || "",
+                }))
+              : [],
+          }));
 
-        if (action === "append") {
-          user.skills.push(...normalized);
-        } else {
-          user.skills = normalized;
+          if (action === "append") {
+            user.skills.push(...normalized);
+          } else {
+            user.skills = normalized;
+          }
         }
       }
 

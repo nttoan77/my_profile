@@ -27,13 +27,16 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 function Router(app) {
+  // get model
+  app.get("/api/auth/:userId", UserController.getUser);
+  // post model
   app.post("/api/auth/forget", UserController.forgetPassword);
   app.post("/api/auth/verify-otp", UserController.verifyOtp);
   app.post("/api/auth/reset-Password", UserController.resetPassword);
 
   app.post("/api/auth/register", UserController.register);
   app.post("/api/auth/login", UserController.login);
-
+  // put model
   app.put(
     "/api/auth/regisInformation",
     upload.fields([
@@ -45,7 +48,7 @@ function Router(app) {
   );
 
   // admin
-  app.get("/api/auth/Admin", UserController.getAllUsers);
+  app.get("/api/auth/Admin", UserController.getAllUsersAdmin);
   app.post("/api/auth/Admin", UserController.createUser);
   app.delete("/api/auth/Admin/:id", UserController.deleteUser);
 
