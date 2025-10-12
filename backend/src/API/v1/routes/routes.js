@@ -3,6 +3,7 @@ import User from "../models/models.js";
 import path from "path";
 import multer from "multer";
 import fs from "fs";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -29,13 +30,19 @@ const upload = multer({ storage });
 function Router(app) {
   // get model
   app.get("/api/auth/:userId", UserController.getUser);
+
   // post model
-  app.post("/api/auth/forget", UserController.forgetPassword);
+  app.post("/api/auth/forgot", UserController.forgetPassword);
+  // app.post("/api/auth/change-password", UserController.resetPassword);
+  app.post("/api/auth/change-password", UserController.changePassword);
   app.post("/api/auth/verify-otp", UserController.verifyOtp);
-  app.post("/api/auth/reset-Password", UserController.resetPassword);
+
+
 
   app.post("/api/auth/register", UserController.register);
   app.post("/api/auth/login", UserController.login);
+
+
   // put model
   app.put(
     "/api/auth/regisInformation",

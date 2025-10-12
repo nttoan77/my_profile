@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 
 // Nếu bạn muốn tự tăng userId thì cần Counter model
 const CounterSchema = new mongoose.Schema({
-  name: { type: String, required: true, unique: true  },
+  name: { type: String, required: true, unique: true },
   seq: { type: Number, default: 0 },
 });
 const Counter = mongoose.model("Counter", CounterSchema);
@@ -15,13 +15,13 @@ const UserSchema = new mongoose.Schema(
     name: String,
     avatar: String,
     nameUser: String,
-    birthDay: {type: Date}, 
+    birthDay: { type: Date },
     gender: String,
-    phone: { type: String, unique: true, required: true }, 
-    email: { type: String, unique: true, required: true }, 
+    phone: { type: String, unique: true, required: true },
+    email: { type: String, unique: true, required: true },
     password: { type: String, required: true },
     website: String,
-    address: String, 
+    address: String,
     desireInWork: String,
 
     // save file
@@ -36,7 +36,7 @@ const UserSchema = new mongoose.Schema(
     careerGoal: String,
     jobPosition: String,
     education: String,
-    about: String, 
+    about: String,
 
     workExperiences: [
       {
@@ -79,48 +79,58 @@ const UserSchema = new mongoose.Schema(
 
     skills: [
       {
-        type: { type: String, default: 'hard' },  // hard | soft
-        name: { type: String, },
+        type: { type: String, default: "hard" }, // hard | soft
+        name: { type: String },
         partials: [
           {
             name: { type: String },
-           
           },
         ],
       },
     ],
-    
-  },
-  { timestamps: true,_id: false,toJSON: {
-    transform(doc, ret) {
-      if (ret.birthDay) {
-        const date = new Date(ret.birthDay);
-        const day = String(date.getDate()).padStart(2, "0");       
-        const month = String(date.getMonth() + 1).padStart(2, "0");
-        const year = date.getFullYear();                           
-        ret.birthDay = `${day}/${month}/${year}`;  
-      }
-      return ret;
+    // ====== OTP để reset password ======
+    resetPasswordOTP: {
+      code: String,
+      expiresAt: Date,
+      verified: { type: Boolean, default: false },
     },
-  }, }
+    tokenVersion: { type: Number, default: 0 },
+  },
+  {
+    timestamps: true,
+    // _id: false,
+    toJSON: {
+      transform(doc, ret) {
+        if (ret.birthDay) {
+          const date = new Date(ret.birthDay);
+          const day = String(date.getDate()).padStart(2, "0");
+          const month = String(date.getMonth() + 1).padStart(2, "0");
+          const year = date.getFullYear();
+          ret.birthDay = `${day}/${month}/${year}`;
+        }
+        return ret;
+      },
+    },
+  }
 );
 
 UserSchema.pre("save", async function (next) {
   // Tự tăng userId
-  if (this.isNew) {
+ 
+  if (this.isNew && !this.userId) {
+    console.log("⚠️ [PRE-SAVE] Tạo userId mới vì isNew = true");
     const counter = await Counter.findOneAndUpdate(
-      // { _id: "userId" },
       { name: "userId" },
       { $inc: { seq: 1 } },
       { new: true, upsert: true }
     );
     this.userId = counter.seq;
-    this._id = counter.seq;
   }
 
   // Hash password
   if (this.isModified("password")) {
-    this.password = await bcrypt.hash(this.password, 6); 
+    console.log("🔑 [PRE-SAVE] Hash lại mật khẩu...");
+    this.password = await bcrypt.hash(this.password, 6);
   }
 
   next();

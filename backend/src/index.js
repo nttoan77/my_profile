@@ -1,11 +1,15 @@
+import dotenv from 'dotenv';
+dotenv.config();
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
 import methodOverride from "method-override";
 import path from "path";
+
 import { fileURLToPath } from "url";
 
 import userRouter from "./API/v1/routes/routes.js"
+
 
 
 // const route = require('./routes');

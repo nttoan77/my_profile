@@ -1,7 +1,12 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "../models/models.js";
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+import transporter from "../../../util/mailer.js";
 import mongoose from "mongoose";
+
+dotenv.config();
 
 // const { mongooseToObject } = require("../../util/mongoose");
 
@@ -24,39 +29,41 @@ class Controller {
 
   // Get /api/auth/user
 
-  async getUser(req, res) {
-    try {
-      const { userId } = req.params;
-      const id = Number(userId); // ép sang số nhanh gọn
+    async getUser(req, res) {
+      try {
 
-      if (isNaN(id)) {
-        return res.status(400).json({ message: "userId phải là số hợp lệ" });
+
+        const { userId } = req.params;
+        const id = Number(userId); // ép sang số nhanh gọn
+
+        if (isNaN(id)) {
+          return res.status(400).json({ message: "userId phải là số hợp lệ" });
+        }
+
+        // Tìm user theo userId thay vì _id mặc định
+        const user = await User.findOne({ userId: id });
+
+        if (!user) {
+          return res.status(404).json({ message: "Không tìm thấy người dùng!" });
+        }
+        const formatDateVN = (date) => {
+          if (!date) return null;
+          const d = new Date(date);
+          const day = String(d.getDate()).padStart(2, "0");
+          const month = String(d.getMonth() + 1).padStart(2, "0");
+          const year = d.getFullYear();
+          return `${day}/${month}/${year}`;
+        };
+
+        const userObj = user.toObject();
+        userObj.birthDay = formatDateVN(userObj.birthDay);
+
+        res.status(200).json(userObj);
+      } catch (error) {
+        console.error("Lỗi khi lấy thông tin người dùng:", error);
+        res.status(500).json({ message: "Lỗi server" });
       }
-
-      // Tìm user theo userId thay vì _id mặc định
-      const user = await User.findOne({ userId: id });
-
-      if (!user) {
-        return res.status(404).json({ message: "Không tìm thấy người dùng!" });
-      }
-      const formatDateVN = (date) => {
-        if (!date) return null;
-        const d = new Date(date);
-        const day = String(d.getDate()).padStart(2, "0");
-        const month = String(d.getMonth() + 1).padStart(2, "0");
-        const year = d.getFullYear();
-        return `${day}/${month}/${year}`;
-      };
-
-      const userObj = user.toObject();
-      userObj.birthDay = formatDateVN(userObj.birthDay);
-
-      res.status(200).json(user);
-    } catch (error) {
-      console.error("Lỗi khi lấy thông tin người dùng:", error);
-      res.status(500).json({ message: "Lỗi server" });
     }
-  }
 
   //create /api/users
   async createUser(req, res) {
@@ -92,134 +99,218 @@ class Controller {
   // login
   async login(req, res) {
     try {
-      const { identifier, password } = req.body;
-      // search user email
+      const { identifier, email, password } = req.body;
+
+      // Cho phép login bằng cả identifier hoặc email
+      const loginKey = identifier || email;
+
+      if (!loginKey || !password) {
+        return res.status(400).json({ message: "Thiếu thông tin đăng nhập!" });
+      }
+
+      // 🔍 Tìm user theo email hoặc số điện thoại
       const user = await User.findOne({
-        $or: [{ email: identifier }, { phone: identifier }],
+        $or: [{ email: loginKey }, { phone: loginKey }],
       });
+
       if (!user) {
         return res.status(404).json({ message: "Người dùng không tồn tại!" });
       }
 
-      // compare birth password
+      // 🔑 So sánh mật khẩu
       const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch)
-        return res.status(400).json({ message: "Mật khẩu không tồn tại!" });
 
-      // create token
+      if (!isMatch) {
+        return res.status(400).json({ message: "Mật khẩu không đúng!" });
+      }
 
-      // const header = {
-      //   alg:"HS256",
-      //   typ:"JWT",
-      // };
-      // const payload = {
-      //   sub: user.id,
-      //   exp: Date.now + 3600000,
-      // }
-      // const  encodeHeader = btoa(JSON.stringify(header));
-      // const encodePayload = btoa(JSON.stringify(payload));
-
-      // const tokenData = `${encodeHeader}.${encodePayload}`;
-      // const hmac = crypto.createHmac()
-
-      // end
-
-      //  create token
+      // 🔐 Tạo token
       const token = jwt.sign(
         { id: user._id, email: user.email },
         process.env.JWT_SECRET || "secretkey",
         { expiresIn: "1d" }
       );
 
-      res.json({ message: "Đăng nhập thành công", token, user });
+      return res.status(200).json({
+        message: "Đăng nhập thành công!",
+        token,
+        user: {
+          userId: user.userId, 
+          nameUser: user.name,
+          email: user.email,
+          phone: user.phone,
+        },
+      });
     } catch (error) {
-      res.status(500).json({ message: "Lỗi sever", error: error.message });
+      console.error("Lỗi đăng nhập:", error);
+      return res.status(500).json({ message: "Lỗi server khi đăng nhập!" });
     }
   }
 
-  // forget password
   async forgetPassword(req, res) {
     try {
-      const { email, phone } = req.body;
+      const { email } = req.body;
 
-      //search user
-      const user = await User.findOne({ $or: [{ email }, { phone }] });
-      if (!user)
-        return res.status(404).json({ message: "Không tìm thấy tài khoản!" });
-
-      // create OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
-
-      // saver otp
-      otpStore[user._id] = { otp, expires: Date.now() + 5 * 60 * 1000 };
-
-      //send otp
-      if (email) {
-        const transporter = nodemailer.createTransport({
-          service: "gmail",
-          auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS,
-          },
-        });
-        await transporter.sendMail({
-          from: process.env.EMAIL_USER,
-          to: user.email,
-          subject: "Mã OTP khôi phục mật khẩu",
-          text: `Mã OTP của bạn là: ${otp}`,
-        });
+      // Kiểm tra người dùng tồn tại trong MongoDB
+      const user = await User.findOne({ email });
+      if (!user) {
+        console.log("Không tìm thấy email:", email);
+        return res
+          .status(404)
+          .json({ message: "Email không tồn tại trong hệ thống" });
       }
-      res.json({ message: "Mã OTP đã được gửi đến email/số điện thoại." });
-    } catch (error) {
-      res.status(500).json({ message: "Lỗi serve", error: error.message });
+
+      // Tạo mã OTP ngẫu nhiên 6 chữ số
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // Lưu OTP vào user (có thời hạn 5 phút)
+      user.resetPasswordOTP = {
+        code: otpCode,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+        verified: false,
+      };
+      await user.save();
+
+      // Gửi email
+      await transporter.sendMail({
+        from: `"Hỗ trợ hệ thống" <${process.env.GMAIL_USER}>`,
+        to: email,
+        subject: "Mã OTP đặt lại mật khẩu",
+        text: `Xin chào ${
+          user.name || ""
+        },\n\nMã OTP của bạn là: ${otpCode}\nMã này sẽ hết hạn sau 5 phút.\n\nTrân trọng.`,
+      });
+
+      console.log(`✅ OTP đã gửi tới email: ${email}`);
+      return res
+        .status(200)
+        .json({ message: "OTP đã được gửi về email của bạn" });
+    } catch (err) {
+      console.error("❌ Lỗi gửi OTP:", err);
+      return res.status(500).json({ message: "Lỗi server khi gửi OTP" });
     }
   }
 
-  // verifyOtp
+  // ========== 2️⃣ XÁC MINH OTP ==========
   async verifyOtp(req, res) {
-    const { userId, otp } = req.body;
+    try {
+      const { email, otp } = req.body;
+      const user = await User.findOne({ email });
 
-    if (!otpStore[userId])
-      return res
-        .status(400)
-        .json({ message: "OTP không tồn tại hoặc đã hết hạn" });
+      if (!user || !user.resetPasswordOTP)
+        return res.status(400).json({ message: "Không tìm thấy mã OTP" });
 
-    const { otp: storedOtp, expires } = otpStore[userId];
+      const { code, expiresAt } = user.resetPasswordOTP;
 
-    if (Date.now() > expires)
-      return res.status(400).json({ message: "OTP đã hết hạn" });
-    if (otp !== storedOtp)
-      return res.status(400).json({ message: "OTP không đúng" });
+      if (new Date() > expiresAt) {
+        user.resetPasswordOTP = undefined;
+        await user.save();
+        return res.status(400).json({ message: "Mã OTP đã hết hạn" });
+      }
 
-    // Tạo token cho phép reset password
-    const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
-      expiresIn: "10m",
-    });
+      if (otp !== code)
+        return res.status(400).json({ message: "Mã OTP không đúng" });
 
-    res.json({ message: "Xác minh thành công", token });
+      // Đánh dấu đã xác minh
+      user.resetPasswordOTP.verified = true;
+      await user.save();
+
+      // Tạo token reset password (hết hạn sau 10 phút)
+      const token = jwt.sign({ email }, process.env.JWT_SECRET, {
+        expiresIn: "10m",
+      });
+
+      return res.json({
+        message: "Xác minh OTP thành công",
+        token,
+      });
+    } catch (err) {
+      console.error("Lỗi xác minh OTP:", err);
+      return res.status(500).json({ message: "Lỗi xác minh OTP" });
+    }
   }
 
-  // reset password
+  // ========== 3️⃣ ĐẶT LẠI MẬT KHẨU ==========
   async resetPassword(req, res) {
     try {
-      const { token, newPassword } = req.body;
-
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.userId);
+      const { email, newPassword } = req.body;
+      const user = await User.findOne({ email });
 
       if (!user)
         return res.status(404).json({ message: "Người dùng không tồn tại" });
 
-      user.password = await bcrypt.hash(newPassword, 10);
-      await user.save();
+      if (!user.resetPasswordOTP?.verified)
+        return res.status(400).json({ message: "OTP chưa được xác minh" });
 
-      delete otpStore[user._id]; // Xóa OTP cũ
+      // Hash mật khẩu mới
+      const hashedPassword = await bcrypt.hash(newPassword, 6);
 
-      res.json({ message: "Đặt lại mật khẩu thành công" });
-    } catch (error) {
-      res.status(500).json({ message: "Lỗi server", error: error.message });
+      // ✅ Cập nhật mật khẩu & xoá OTP bằng updateOne để tránh tạo user mới
+      await User.updateOne(
+        { email },
+        {
+          $set: {
+            password: hashedPassword,
+            resetPasswordOTP: undefined,
+           
+          },
+        }
+      );
+     
+
+      return res.json({ message: "Đặt lại mật khẩu thành công" });
+    } catch (err) {
+      console.error("Lỗi đặt lại mật khẩu:", err);
+      return res.status(500).json({ message: "Lỗi đặt lại mật khẩu" });
     }
   }
+
+  // change password
+  async changePassword(req, res) {
+    try {
+      const { email, newPassword } = req.body;
+
+      // Kiểm tra dữ liệu đầu vào
+      if (!email || !newPassword) {
+        return res
+          .status(400)
+          .json({ message: "Thiếu email hoặc mật khẩu mới!" });
+      }
+
+      // Tìm user theo email
+      const user = await User.findOne({ email });
+      if (!user) {
+        return res
+          .status(404)
+          .json({ message: "Không tìm thấy người dùng với email này!" });
+      }
+
+      // Cập nhật mật khẩu
+      const hashedPassword = await bcrypt.hash(newPassword, 6);
+
+      // Xóa OTP cũ (nếu có)
+     
+    // ✅ Update trực tiếp
+    await User.updateOne(
+      { email },
+      {
+        $set: {
+          password: hashedPassword,
+          resetPasswordOTP: undefined,
+          tokenVersion: (user.tokenVersion || 0) + 1,
+        },
+      }
+    );
+
+
+      return res.status(200).json({ message: "Đặt lại mật khẩu thành công!" });
+    } catch (error) {
+      console.error("Lỗi khi đổi mật khẩu:", error);
+      return res.status(500).json({ message: "Lỗi server khi đổi mật khẩu!" });
+    }
+  }
+
+  // ==================^=====================
 
   // register
   async register(req, res) {
@@ -393,9 +484,11 @@ class Controller {
 
       // ✅ workExperiences
       if (workExperiences && workExperiences.length > 0) {
-        const arr = Array.isArray(workExperiences) ? workExperiences : [workExperiences];
-      
-        const normalized = arr.map(exp => ({
+        const arr = Array.isArray(workExperiences)
+          ? workExperiences
+          : [workExperiences];
+
+        const normalized = arr.map((exp) => ({
           company: exp.company,
           position: exp.position,
           startDate: exp.startDate || "",
@@ -403,7 +496,7 @@ class Controller {
           description: exp.description || "",
           achievements: exp.achievements || "",
         }));
-      
+
         if (normalized.length > 0) {
           if (action === "append" || !action) {
             user.workExperiences.push(...normalized);
@@ -411,11 +504,10 @@ class Controller {
             user.workExperiences = normalized;
           }
         }
-      }     
-      
-      
+      }
+
       // ✅ skills
-      
+
       if (req.body.skills) {
         let skills = [];
         try {
