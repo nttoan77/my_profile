@@ -22,6 +22,7 @@ const UserSchema = new mongoose.Schema(
     password: { type: String, required: true },
     website: String,
     address: String,
+    workPosition:String,
     desireInWork: String,
 
     // save file
@@ -95,6 +96,9 @@ const UserSchema = new mongoose.Schema(
       verified: { type: Boolean, default: false },
     },
     tokenVersion: { type: Number, default: 0 },
+    isProfileComplete: { type: Boolean, default: false },
+    isDeleted: { type: Boolean, default: false },
+    role: { type: String, enum: ['admin', 'user'], default: 'user' },
   },
   {
     timestamps: true,
@@ -118,7 +122,6 @@ UserSchema.pre("save", async function (next) {
   // Tự tăng userId
  
   if (this.isNew && !this.userId) {
-    console.log("⚠️ [PRE-SAVE] Tạo userId mới vì isNew = true");
     const counter = await Counter.findOneAndUpdate(
       { name: "userId" },
       { $inc: { seq: 1 } },
@@ -129,7 +132,6 @@ UserSchema.pre("save", async function (next) {
 
   // Hash password
   if (this.isModified("password")) {
-    console.log("🔑 [PRE-SAVE] Hash lại mật khẩu...");
     this.password = await bcrypt.hash(this.password, 6);
   }
 

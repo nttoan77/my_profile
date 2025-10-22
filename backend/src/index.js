@@ -8,7 +8,8 @@ import path from "path";
 
 import { fileURLToPath } from "url";
 
-import userRouter from "./API/v1/routes/routes.js"
+// import userRouter from "./API/v1/routes/routes.js"
+import apiRoutes from "./API/v1/routes/index.js";
 
 
 
@@ -43,7 +44,7 @@ app.use(methodOverride('_method'));
 app.use(cors());
 
 // router init
-userRouter(app);
+app.use("/api", apiRoutes);
 
 app.listen(port, () =>
     console.log(`App listening at http://localhost:${port}`),

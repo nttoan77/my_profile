@@ -13,70 +13,85 @@ dotenv.config();
 let otpStore = {};
 
 class Controller {
-  // ADMIN
-  // GET /api/users
-  async getAllUsersAdmin(req, res) {
-    try {
-      User.findOne({}).sort({ _id: "desc" });
-
-      const users = await User.find().sort({ createdAt: -1 });
-
-      res.status(200).json(users);
-    } catch (err) {
-      res.status(500).json({ message: "Lỗi server", error: err.message });
-    }
-  }
-
   // Get /api/auth/user
 
-    async getUser(req, res) {
-      try {
-
-
-        const { userId } = req.params;
-        const id = Number(userId); // ép sang số nhanh gọn
-
-        if (isNaN(id)) {
-          return res.status(400).json({ message: "userId phải là số hợp lệ" });
-        }
-
-        // Tìm user theo userId thay vì _id mặc định
-        const user = await User.findOne({ userId: id });
-
-        if (!user) {
-          return res.status(404).json({ message: "Không tìm thấy người dùng!" });
-        }
-        const formatDateVN = (date) => {
-          if (!date) return null;
-          const d = new Date(date);
-          const day = String(d.getDate()).padStart(2, "0");
-          const month = String(d.getMonth() + 1).padStart(2, "0");
-          const year = d.getFullYear();
-          return `${day}/${month}/${year}`;
-        };
-
-        const userObj = user.toObject();
-        userObj.birthDay = formatDateVN(userObj.birthDay);
-
-        res.status(200).json(userObj);
-      } catch (error) {
-        console.error("Lỗi khi lấy thông tin người dùng:", error);
-        res.status(500).json({ message: "Lỗi server" });
-      }
-    }
-
-  //create /api/users
-  async createUser(req, res) {
+  async getUser(req, res) {
     try {
-      const newUser = new User(req.body);
-      await newUser.save();
-      res.status(200).json(newUser);
+      const { userId } = req.params;
+
+      // Không ép kiểu nữa
+      const user = await User.findOne({ userId });
+
+      if (!user) {
+        return res.status(404).json({ message: "Không tìm thấy người dùng!" });
+      }
+
+      const formatDateVN = (date) => {
+        if (!date) return null;
+        const d = new Date(date);
+        const day = String(d.getDate()).padStart(2, "0");
+        const month = String(d.getMonth() + 1).padStart(2, "0");
+        const year = d.getFullYear();
+        return `${day}/${month}/${year}`;
+      };
+
+      const userObj = user.toObject();
+      userObj.birthDay = formatDateVN(userObj.birthDay);
+
+      res.status(200).json(userObj);
     } catch (error) {
-      res
-        .status(500)
-        .json({ message: "Lỗi khi tạo user", error: error.massage });
+      res.status(500).json({ message: "Lỗi server" });
     }
   }
+
+  //create /api/users
+ // Controller/UserController.js
+
+async createUser(req, res) {
+  try {
+    const { nameUser, email, phone, password, role } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: "Thiếu email hoặc mật khẩu!" });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "Email đã tồn tại!" });
+    }
+
+    // 🔢 Lấy userId kế tiếp (tự tăng)
+    const lastUser = await User.findOne().sort({ userId: -1 }).limit(1);
+    const nextUserId = lastUser ? lastUser.userId + 1 : 1;
+
+    // ✅ Nếu userId trong khoảng 1 → 5 thì là admin
+    const assignedRole =
+      nextUserId >= 1 && nextUserId <= 5 ? "admin" : role || "user";
+
+    const newUser = new User({
+      userId: nextUserId,
+      nameUser,
+      email,
+      phone,
+      password,
+      role: assignedRole,
+      isProfileComplete: false,
+    });
+
+    await newUser.save();
+
+    res.status(201).json({
+      message: "Đăng ký thành công!",
+      user: newUser,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Lỗi server khi đăng ký tài khoản!",
+      error: error.message,
+    });
+  }
+}
+
 
   // delete /api/users
   async deleteUser(req, res) {
@@ -101,32 +116,26 @@ class Controller {
     try {
       const { identifier, email, password } = req.body;
 
-      // Cho phép login bằng cả identifier hoặc email
       const loginKey = identifier || email;
 
-      if (!loginKey || !password) {
-        return res.status(400).json({ message: "Thiếu thông tin đăng nhập!" });
-      }
-
-      // 🔍 Tìm user theo email hoặc số điện thoại
       const user = await User.findOne({
         $or: [{ email: loginKey }, { phone: loginKey }],
       });
 
-      if (!user) {
+      if (!user)
         return res.status(404).json({ message: "Người dùng không tồn tại!" });
-      }
 
-      // 🔑 So sánh mật khẩu
       const isMatch = await bcrypt.compare(password, user.password);
-
-      if (!isMatch) {
+      if (!isMatch)
         return res.status(400).json({ message: "Mật khẩu không đúng!" });
-      }
 
-      // 🔐 Tạo token
+      // Tính isProfileComplete dựa trên dữ liệu thực
+      const profileFields = ["nameUser", "birthDay", "workPosition"];
+      const isCompleteData = profileFields.every((f) => !!user[f]);
+      user.isProfileComplete = isCompleteData; // ✅ update trước khi trả về
+
       const token = jwt.sign(
-        { id: user._id, email: user.email },
+        { id: user._id, email: user.email, role: user.role },
         process.env.JWT_SECRET || "secretkey",
         { expiresIn: "1d" }
       );
@@ -135,14 +144,19 @@ class Controller {
         message: "Đăng nhập thành công!",
         token,
         user: {
-          userId: user.userId, 
-          nameUser: user.name,
+          userId: user.userId,
+          nameUser: user.nameUser,
+          name: user.name,
           email: user.email,
+          role: user.role,
           phone: user.phone,
+          avatar: user.avatar,
+          isProfileComplete: user.isProfileComplete,
+          birthDay: user.birthDay,
+          workPosition: user.workPosition,
         },
       });
     } catch (error) {
-      console.error("Lỗi đăng nhập:", error);
       return res.status(500).json({ message: "Lỗi server khi đăng nhập!" });
     }
   }
@@ -181,7 +195,7 @@ class Controller {
         },\n\nMã OTP của bạn là: ${otpCode}\nMã này sẽ hết hạn sau 5 phút.\n\nTrân trọng.`,
       });
 
-      console.log(`✅ OTP đã gửi tới email: ${email}`);
+      // console.log(`✅ OTP đã gửi tới email: ${email}`);
       return res
         .status(200)
         .json({ message: "OTP đã được gửi về email của bạn" });
@@ -252,11 +266,9 @@ class Controller {
           $set: {
             password: hashedPassword,
             resetPasswordOTP: undefined,
-           
           },
         }
       );
-     
 
       return res.json({ message: "Đặt lại mật khẩu thành công" });
     } catch (err) {
@@ -289,19 +301,18 @@ class Controller {
       const hashedPassword = await bcrypt.hash(newPassword, 6);
 
       // Xóa OTP cũ (nếu có)
-     
-    // ✅ Update trực tiếp
-    await User.updateOne(
-      { email },
-      {
-        $set: {
-          password: hashedPassword,
-          resetPasswordOTP: undefined,
-          tokenVersion: (user.tokenVersion || 0) + 1,
-        },
-      }
-    );
 
+      // ✅ Update trực tiếp
+      await User.updateOne(
+        { email },
+        {
+          $set: {
+            password: hashedPassword,
+            resetPasswordOTP: undefined,
+            tokenVersion: (user.tokenVersion || 0) + 1,
+          },
+        }
+      );
 
       return res.status(200).json({ message: "Đặt lại mật khẩu thành công!" });
     } catch (error) {
@@ -342,6 +353,7 @@ class Controller {
         password,
         name,
         phone,
+        isProfileComplete: false,
       });
 
       await user.save();
@@ -353,7 +365,7 @@ class Controller {
         { expiresIn: "1d" }
       );
 
-      console.log(user);
+      // console.log(user);
 
       res.status(201).json({ message: "Đăng ký thành công", user, token });
     } catch (error) {
@@ -373,7 +385,7 @@ class Controller {
         gender,
         address,
         careerGoal,
-
+        workPosition,
         desireInWork,
         action = "replace",
       } = req.body;
@@ -441,6 +453,7 @@ class Controller {
       user.website = website || user.website;
       user.gender = gender || user.gender;
       user.address = address || user.address;
+      user.workPosition = workPosition || user.workPosition;
       user.careerGoal = careerGoal || user.careerGoal;
       user.desireInWork = desireInWork || user.desireInWork;
       if (birthDay) {
@@ -557,7 +570,10 @@ class Controller {
           user.study = normalized;
         }
       }
-
+      // ✅ Tính isProfileComplete dựa trên dữ liệu thực
+      const profileFields = ["nameUser", "birthDay", "workPosition"];
+      const isCompleteData = profileFields.every((f) => !!user[f]);
+      user.isProfileComplete = isCompleteData;
       await user.save();
       res.status(200).json({ message: "Cập nhật thành công", user });
     } catch (error) {
@@ -565,6 +581,33 @@ class Controller {
       console.error("🔥 Lỗi khi cập nhật thông tin:", error);
     }
   }
+
+  // PUT /api/users/:id/role
+async updateUserRole(req, res) {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!["user", "admin"].includes(role)) {
+      return res.status(400).json({ message: "Vai trò không hợp lệ!" });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      id,
+      { role },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "Không tìm thấy người dùng!" });
+    }
+
+    res.status(200).json({ message: "Cập nhật quyền thành công!", user });
+  } catch (error) {
+    res.status(500).json({ message: "Lỗi server khi cập nhật quyền!" });
+  }
+}
+
 }
 
 export default new Controller();
